@@ -1,0 +1,1611 @@
+--- git commit ---
+d424a0c899f6b33cbd3daeb279913134349c0b63
+
+
+--- git status ---
+On branch develop
+Your branch is up to date with 'origin/develop'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   pyproject.toml
+	modified:   scripts/play_latest.py
+	modified:   scripts/wandb_utils.py
+	modified:   src/mjlab_microduck/robot/microduck/robot_allcollisions.xml
+	modified:   src/mjlab_microduck/robot/microduck/robot_allcollisions_backlash.xml
+	modified:   src/mjlab_microduck/tasks/__init__.py
+	modified:   src/mjlab_microduck/tasks/mdp.py
+	modified:   uv.lock
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	MUJOCO_LOG.TXT
+	scripts/eval_jump_checkpoint.py
+	scripts/search_jump_open_loop.py
+	src/mjlab_microduck/distributions.py
+	src/mjlab_microduck/tasks/microduck_jump_env_cfg.py
+	tests/test_jump_cfg.py
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/pyproject.toml b/pyproject.toml
+index 479431f..790c697 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -35,6 +35,12 @@ dependencies = [
+     # floating `>=` lets the CUDA index (which carries newer builds than the
+     # PyPI pin) drag torch 2.9.1 -> 2.13.0, an unvetted bump for mjlab/rsl_rl.
+     "torch==2.9.1",
++    # Direct + capped: 0.29.0 removed Settings(start_method=...), which the
++    # pinned rsl_rl passes in WandbSummaryWriter.__init__ -> crash at logger
++    # init before training starts. Below 0.25 has the silent-upload-failure
++    # bug (W&B banners v0.24.0 runs). Lift the cap only with an rsl_rl that
++    # drops start_method.
++    "wandb>=0.25,<0.29",
+ ]
+ 
+ [project.entry-points."mjlab.tasks"]
+diff --git a/scripts/play_latest.py b/scripts/play_latest.py
+index 841ff1d..db6097a 100644
+--- a/scripts/play_latest.py
++++ b/scripts/play_latest.py
+@@ -26,8 +26,8 @@ TYPE_SUBSTR = {
+ def main():
+     parser = argparse.ArgumentParser(description="Play latest wandb run for a user")
+     parser.add_argument(
+-        "--user", default="coralie",
+-        help="Filter runs by user (matched against email, default: coralie)",
++        "--user", default="thomasburgess2000",
++        help="Filter runs by user (matched against email, default: thomasburgess2000)",
+     )
+     parser.add_argument(
+         "--dry-run", action="store_true",
+diff --git a/scripts/wandb_utils.py b/scripts/wandb_utils.py
+index d55f7d4..22922a5 100644
+--- a/scripts/wandb_utils.py
++++ b/scripts/wandb_utils.py
+@@ -7,7 +7,9 @@ from datetime import datetime
+ 
+ import wandb
+ 
+-WANDB_PROJECT = "pollen-robotics/mjlab_microduck"
++# Follow the logged-in user's default entity instead of hardcoding
++# pollen-robotics: personal clones query their own mjlab_microduck project.
++WANDB_PROJECT = f"{wandb.Api().default_entity}/mjlab_microduck"
+ 
+ 
+ def find_latest_run(user_filter: str) -> wandb.apis.public.Run | None:
+diff --git a/src/mjlab_microduck/robot/microduck/robot_allcollisions.xml b/src/mjlab_microduck/robot/microduck/robot_allcollisions.xml
+index 7f296e3..c9aa16e 100644
+--- a/src/mjlab_microduck/robot/microduck/robot_allcollisions.xml
++++ b/src/mjlab_microduck/robot/microduck/robot_allcollisions.xml
+@@ -172,6 +172,17 @@
+                 <geom type="mesh" class="visual" pos="-0.022 0.00622291 -0.0647" quat="0.5 -0.5 -0.5 -0.5" mesh="ankle_left" material="ankle_left_material"/>
+                 <!-- Frame left_foot -->
+                 <site group="3" name="left_foot" pos="-0 -0.0238146 -0.0140852" quat="0 0 0.707107 0.707107"/>
++                <!-- Invisible sole-underbody probes used by the jump task.  The
++                     positions are sampled from the lowest 0.5 mm of the actual
++                     sole_left collision mesh in this ankle frame. -->
++                <!-- Lowest longitudinal envelope of the curved collision sole. -->
++                <site group="3" name="passive_left_sole_probe_x0" pos="-0.030161 -0.017313 -0.034446" rgba="0 0 0 0"/>
++                <site group="3" name="passive_left_sole_probe_x1" pos="-0.025834 -0.017479 -0.035201" rgba="0 0 0 0"/>
++                <site group="3" name="passive_left_sole_probe_x2" pos="-0.012899 -0.017724 -0.035217" rgba="0 0 0 0"/>
++                <site group="3" name="passive_left_sole_probe_x3" pos="-0.006433 -0.017971 -0.035231" rgba="0 0 0 0"/>
++                <site group="3" name="passive_left_sole_probe_x4" pos="0.000000 -0.018026 -0.035245" rgba="0 0 0 0"/>
++                <site group="3" name="passive_left_sole_probe_x5" pos="0.009570 -0.017631 -0.035216" rgba="0 0 0 0"/>
++                <site group="3" name="passive_left_sole_probe_x6" pos="0.016052 -0.017224 -0.034977" rgba="0 0 0 0"/>
+               </body>
+             </body>
+           </body>
+@@ -329,6 +340,14 @@
+                 <geom type="mesh" class="visual" pos="0.022 0.00622291 -0.0647" quat="0.5 -0.5 0.5 0.5" mesh="foot_right" material="foot_right_material"/>
+                 <!-- Frame right_foot -->
+                 <site group="3" name="right_foot" pos="0 -0.0238146 -0.0140852" quat="0.707107 -0.707107 0 0"/>
++                <!-- Lowest longitudinal envelope of the curved collision sole. -->
++                <site group="3" name="passive_right_sole_probe_x0" pos="-0.016052 -0.017224 -0.034977" rgba="0 0 0 0"/>
++                <site group="3" name="passive_right_sole_probe_x1" pos="-0.009570 -0.017631 -0.035216" rgba="0 0 0 0"/>
++                <site group="3" name="passive_right_sole_probe_x2" pos="0.000000 -0.018026 -0.035245" rgba="0 0 0 0"/>
++                <site group="3" name="passive_right_sole_probe_x3" pos="0.006433 -0.017971 -0.035231" rgba="0 0 0 0"/>
++                <site group="3" name="passive_right_sole_probe_x4" pos="0.012899 -0.017724 -0.035217" rgba="0 0 0 0"/>
++                <site group="3" name="passive_right_sole_probe_x5" pos="0.025834 -0.017479 -0.035201" rgba="0 0 0 0"/>
++                <site group="3" name="passive_right_sole_probe_x6" pos="0.030161 -0.017313 -0.034446" rgba="0 0 0 0"/>
+               </body>
+             </body>
+           </body>
+diff --git a/src/mjlab_microduck/robot/microduck/robot_allcollisions_backlash.xml b/src/mjlab_microduck/robot/microduck/robot_allcollisions_backlash.xml
+index c31684f..070321d 100644
+--- a/src/mjlab_microduck/robot/microduck/robot_allcollisions_backlash.xml
++++ b/src/mjlab_microduck/robot/microduck/robot_allcollisions_backlash.xml
+@@ -188,6 +188,15 @@
+                 <geom type="mesh" class="visual" pos="-0.022 0.00622291 -0.0647" quat="0.5 -0.5 -0.5 -0.5" mesh="ankle_left" material="ankle_left_material"/>
+                 <!-- Frame left_foot -->
+                 <site group="3" name="left_foot" pos="-0 -0.0238146 -0.0140852" quat="0 0 0.707107 0.707107"/>
++                <!-- Invisible sole-underbody probes used by the jump task. -->
++                <!-- Lowest longitudinal envelope of the curved collision sole. -->
++                <site group="3" name="passive_left_sole_probe_x0" pos="-0.030161 -0.017313 -0.034446" rgba="0 0 0 0"/>
++                <site group="3" name="passive_left_sole_probe_x1" pos="-0.025834 -0.017479 -0.035201" rgba="0 0 0 0"/>
++                <site group="3" name="passive_left_sole_probe_x2" pos="-0.012899 -0.017724 -0.035217" rgba="0 0 0 0"/>
++                <site group="3" name="passive_left_sole_probe_x3" pos="-0.006433 -0.017971 -0.035231" rgba="0 0 0 0"/>
++                <site group="3" name="passive_left_sole_probe_x4" pos="0.000000 -0.018026 -0.035245" rgba="0 0 0 0"/>
++                <site group="3" name="passive_left_sole_probe_x5" pos="0.009570 -0.017631 -0.035216" rgba="0 0 0 0"/>
++                <site group="3" name="passive_left_sole_probe_x6" pos="0.016052 -0.017224 -0.034977" rgba="0 0 0 0"/>
+               </body>
+             </body>
+           </body>
+@@ -354,6 +363,14 @@
+                 <geom type="mesh" class="visual" pos="0.022 0.00622291 -0.0647" quat="0.5 -0.5 0.5 0.5" mesh="foot_right" material="foot_right_material"/>
+                 <!-- Frame right_foot -->
+                 <site group="3" name="right_foot" pos="0 -0.0238146 -0.0140852" quat="0.707107 -0.707107 0 0"/>
++                <!-- Lowest longitudinal envelope of the curved collision sole. -->
++                <site group="3" name="passive_right_sole_probe_x0" pos="-0.016052 -0.017224 -0.034977" rgba="0 0 0 0"/>
++                <site group="3" name="passive_right_sole_probe_x1" pos="-0.009570 -0.017631 -0.035216" rgba="0 0 0 0"/>
++                <site group="3" name="passive_right_sole_probe_x2" pos="0.000000 -0.018026 -0.035245" rgba="0 0 0 0"/>
++                <site group="3" name="passive_right_sole_probe_x3" pos="0.006433 -0.017971 -0.035231" rgba="0 0 0 0"/>
++                <site group="3" name="passive_right_sole_probe_x4" pos="0.012899 -0.017724 -0.035217" rgba="0 0 0 0"/>
++                <site group="3" name="passive_right_sole_probe_x5" pos="0.025834 -0.017479 -0.035201" rgba="0 0 0 0"/>
++                <site group="3" name="passive_right_sole_probe_x6" pos="0.030161 -0.017313 -0.034446" rgba="0 0 0 0"/>
+               </body>
+             </body>
+           </body>
+diff --git a/src/mjlab_microduck/tasks/__init__.py b/src/mjlab_microduck/tasks/__init__.py
+index 9e69fac..0d68372 100644
+--- a/src/mjlab_microduck/tasks/__init__.py
++++ b/src/mjlab_microduck/tasks/__init__.py
+@@ -67,6 +67,10 @@ from .microduck_roulade_env_cfg import (
+     make_microduck_roulade_env_cfg,
+     MicroduckRouladeRlCfg,
+ )
++from .microduck_jump_env_cfg import (
++    make_microduck_jump_env_cfg,
++    MicroduckJumpRlCfg,
++)
+ from .backlash import make_backlash_variant
+ 
+ # Standard velocity task
+@@ -225,6 +229,15 @@ register_mjlab_task(
+     runner_cls=MicroduckOnPolicyRunner,
+ )
+ 
++# Jump -- leave the ground from a standing start and recover on both feet.
++register_mjlab_task(
++    task_id="Mjlab-Jump-Flat-MicroDuck",
++    env_cfg=make_microduck_jump_env_cfg(),
++    play_env_cfg=make_microduck_jump_env_cfg(play=True),
++    rl_cfg=MicroduckJumpRlCfg,
++    runner_cls=MicroduckOnPolicyRunner,
++)
++
+ # Backlash variants — ±1° serial gear play per servo + encoder-through-backlash
+ # actuator feedback and joint obs (see tasks/backlash.py). Each family keeps its
+ # base task's collision model: Velocity → robot_walk_backlash.xml,
+@@ -259,6 +272,7 @@ _BACKLASH_TASKS = (
+     ("Mjlab-Velocity-Swizzle-Backlash-MicroDuck", make_microduck_velocity_swizzle_env_cfg, {}, MicroduckSwizzleRlCfg, _BL_ROLLERS),
+     ("Mjlab-RollerCrouch-Flat-Backlash-MicroDuck", make_microduck_roller_crouch_env_cfg, {}, MicroduckRollerCrouchRlCfg, _BL_ROLLERS),
+     ("Mjlab-RollerSlope-Flat-Backlash-MicroDuck", make_microduck_roller_slope_env_cfg, {}, MicroduckRollerSlopeRlCfg, _BL_ROLLERS),
++    ("Mjlab-Jump-Flat-Backlash-MicroDuck", make_microduck_jump_env_cfg, {}, MicroduckJumpRlCfg, _BL_ALLCOL),
+ )
+ for _task_id, _make_cfg, _kw, _rl_cfg, _robot_cfg in _BACKLASH_TASKS:
+     register_mjlab_task(
+diff --git a/src/mjlab_microduck/tasks/mdp.py b/src/mjlab_microduck/tasks/mdp.py
+index f8dfcba..f502f42 100644
+--- a/src/mjlab_microduck/tasks/mdp.py
++++ b/src/mjlab_microduck/tasks/mdp.py
+@@ -7186,3 +7186,1334 @@ def roulade_lateral_velocity_penalty(
+     """Body-frame lateral (y) linear velocity² — keeps the roll straight."""
+     asset: Entity = env.scene[asset_cfg.name]
+     return torch.nan_to_num(asset.data.root_link_lin_vel_b[:, 1].pow(2), nan=0.0)
++
++
++# ==============================================================================
++# Jump task -- state-based takeoff, airborne frontier, and landing recovery
++# ==============================================================================
++
++_JUMP_FEET_SENSOR = "feet_ground_contact"
++_JUMP_BODY_SENSOR = "nonfoot_ground_contact"
++_JUMP_FEET_CFG = SceneEntityCfg("robot", site_names=("left_foot", "right_foot"))
++_JUMP_SOLE_PROBE_NAMES = (
++    "passive_left_sole_probe_x0",
++    "passive_left_sole_probe_x1",
++    "passive_left_sole_probe_x2",
++    "passive_left_sole_probe_x3",
++    "passive_left_sole_probe_x4",
++    "passive_left_sole_probe_x5",
++    "passive_left_sole_probe_x6",
++    "passive_right_sole_probe_x0",
++    "passive_right_sole_probe_x1",
++    "passive_right_sole_probe_x2",
++    "passive_right_sole_probe_x3",
++    "passive_right_sole_probe_x4",
++    "passive_right_sole_probe_x5",
++    "passive_right_sole_probe_x6",
++)
++
++
++def _jump_bilateral_sole_clearance(
++    env: ManagerBasedRlEnv,
++    asset: Entity,
++) -> torch.Tensor:
++    """Lowest underside-probe height shared by both feet above flat terrain.
++
++    Taking the minimum over the collision mesh's longitudinal lower envelope
++    on both soles makes toe rocking, heel lifting, and one-foot hops score zero
++    until the complete support polygon is visibly clear of the floor.  Sites
++    are reward-only and do not change the 61D policy observation.
++    """
++    if not hasattr(env, "_jump_sole_probe_ids"):
++        ids, names = asset.find_sites(_JUMP_SOLE_PROBE_NAMES, preserve_order=True)
++        if tuple(names) != _JUMP_SOLE_PROBE_NAMES:
++            raise RuntimeError(
++                f"jump sole probes resolved out of order: {tuple(names)!r}"
++            )
++        env._jump_sole_probe_ids = torch.tensor(
++            ids, dtype=torch.long, device=env.device
++        )
++    probe_z = asset.data.site_pos_w[:, env._jump_sole_probe_ids, 2]
++    ground_z = env.scene.terrain.env_origins[:, 2:3]
++    clearance = (probe_z - ground_z).view(env.num_envs, 2, -1)
++    per_foot = clearance.amin(dim=-1)
++    return torch.clamp(per_foot.amin(dim=-1), min=0.0)
++
++
++class JumpOneShotCommand(UniformVelocityCommand):
++    """One-shot jump request carried in the existing 3D twist command slot.
++
++    ``command[:, 0]`` is 1 while the policy should launch and 0 while it should
++    settle.  It drops after the first touchdown (or after ``launch_window_s``)
++    and is always zero for descending reverse-curriculum spawns.  This preserves
++    the shared 61D observation contract while removing the otherwise ambiguous
++    observation where the same standing pose means both "jump" at episode start
++    and "stay still" after landing.
++
++    Deployment writes the same one-shot 1 -> 0 flag into the twist-vx slot.
++    The remaining twist dimensions stay zero.
++    """
++
++    def __init__(self, cfg, env: ManagerBasedRlEnv):
++        super().__init__(cfg, env)
++        self._env_ref = env
++        self._launch_window_s = float(getattr(cfg, "launch_window_s", 0.75))
++
++    @property
++    def command(self) -> torch.Tensor:
++        return self.vel_command_b
++
++    def _resample_command(self, env_ids: torch.Tensor) -> None:
++        self.vel_command_b[env_ids] = 0.0
++        self.vel_command_b[env_ids, 0] = 1.0
++
++    def compute(self, dt: float) -> None:
++        del dt
++        descending = getattr(
++            self._env_ref,
++            "_jump_descending_spawn",
++            torch.zeros(self.num_envs, dtype=torch.bool, device=self.device),
++        )
++        landed = getattr(
++            self._env_ref,
++            "_jump_landed_latched",
++            torch.zeros(self.num_envs, dtype=torch.bool, device=self.device),
++        )
++        supported = getattr(
++            self._env_ref,
++            "_jump_support_latched",
++            torch.zeros(self.num_envs, dtype=torch.bool, device=self.device),
++        )
++        support_step = getattr(
++            self._env_ref,
++            "_jump_support_latched_step",
++            torch.full((self.num_envs,), -1, dtype=torch.long, device=self.device),
++        )
++        elapsed_since_support = (
++            self._env_ref.episode_length_buf - support_step
++        ).clamp(min=0).float() * self._env_ref.step_dt
++        launch = (
++            supported
++            & (elapsed_since_support < self._launch_window_s)
++            & ~descending
++            & ~landed
++        )
++        self.vel_command_b.zero_()
++        self.vel_command_b[:, 0] = launch.float()
++
++    def _update_command(self) -> None:
++        pass
++
++    def _update_metrics(self) -> None:
++        pass
++
++
++@_dataclass(kw_only=True)
++class JumpOneShotCommandCfg(VelocityCommandCommandOnlyCfg):
++    class_type: type = JumpOneShotCommand
++    launch_window_s: float = 0.75
++
++    def build(self, env: ManagerBasedRlEnv) -> "JumpOneShotCommand":
++        return JumpOneShotCommand(self, env)
++
++
++JUMP_DURABLE_POSE_RMS_MAX_RAD = 0.30
++JUMP_DURABLE_HEAD_MAX_ERROR_RAD = 0.25
++JUMP_DURABLE_FOOT_DISTANCE_MIN_M = 0.070
++
++
++def _jump_contact_mask(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
++    """Return per-primary contact flags as ``(num_envs, num_primaries)``."""
++    if sensor_name not in env.scene.sensors:
++        return torch.zeros((env.num_envs, 1), dtype=torch.bool, device=env.device)
++    found = env.scene.sensors[sensor_name].data.found
++    if found.dim() == 1:
++        found = found[:, None]
++    elif found.dim() > 2:
++        found = found.view(found.shape[0], found.shape[1], -1).any(dim=-1)
++    return found.bool()
++
++
++def _jump_state(env: ManagerBasedRlEnv, asset: Entity) -> None:
++    if hasattr(env, "_jump_takeoff_latched"):
++        return
++    n, device = env.num_envs, env.device
++    zeros = torch.zeros(n, device=device)
++    env._jump_takeoff_latched = torch.zeros(n, dtype=torch.bool, device=device)
++    env._jump_valid_takeoff_latched = torch.zeros(n, dtype=torch.bool, device=device)
++    env._jump_support_latched = torch.zeros(n, dtype=torch.bool, device=device)
++    env._jump_body_contact_latched = torch.zeros(n, dtype=torch.bool, device=device)
++    env._jump_support_latched_step = torch.full(
++        (n,), -1, dtype=torch.long, device=device
++    )
++    env._jump_landed_latched = torch.zeros(n, dtype=torch.bool, device=device)
++    env._jump_stable_latched = torch.zeros(n, dtype=torch.bool, device=device)
++    env._jump_grounded_steps = torch.zeros(n, dtype=torch.long, device=device)
++    env._jump_air_steps = torch.zeros(n, dtype=torch.long, device=device)
++    env._jump_clearance_steps = torch.zeros(n, dtype=torch.long, device=device)
++    env._jump_stable_steps = torch.zeros(n, dtype=torch.long, device=device)
++    env._jump_post_touchdown_steps = torch.zeros(n, dtype=torch.long, device=device)
++    env._jump_descending_spawn = torch.zeros(n, dtype=torch.bool, device=device)
++    env._jump_takeoff_height = zeros.clone()
++    env._jump_launch_frontier = zeros.clone()
++    env._jump_launch_paid = zeros.clone()
++    env._jump_height_frontier = zeros.clone()
++    env._jump_height_paid = zeros.clone()
++    env._jump_clearance = zeros.clone()
++    env._jump_grounded_sole_height = zeros.clone()
++    env._jump_clearance_frontier = zeros.clone()
++    env._jump_visible_height_frontier = zeros.clone()
++    env._jump_visible_height_paid = zeros.clone()
++    env._jump_airtime_frontier = zeros.clone()
++    env._jump_airtime_paid = zeros.clone()
++    env._jump_recovery_prev = zeros.clone()
++    env._jump_settle_frontier = zeros.clone()
++    env._jump_settle_paid = zeros.clone()
++    env._jump_com_vz = zeros.clone()
++    env._jump_prev_com_z = torch.nan_to_num(asset.data.root_com_pos_w[:, 2], nan=0.0).clone()
++    env._jump_takeoff_pulse = torch.zeros(n, dtype=torch.bool, device=device)
++    env._jump_touchdown_pulse = torch.zeros(n, dtype=torch.bool, device=device)
++    env._jump_stable_pulse = torch.zeros(n, dtype=torch.bool, device=device)
++    env._jump_durable_success = torch.zeros(n, dtype=torch.bool, device=device)
++    env._jump_touchdown_score = zeros.clone()
++    env._jump_last_update_step = -1
++
++
++def _jump_recovery_score(
++    env: ManagerBasedRlEnv,
++    asset: Entity,
++    feet_cfg: SceneEntityCfg,
++    stand_height: float,
++) -> torch.Tensor:
++    quat = asset.data.root_link_quat_w
++    upright = torch.clamp(
++        torch.nan_to_num(1.0 - 2.0 * (quat[:, 1].square() + quat[:, 2].square()), nan=0.0),
++        min=0.0,
++        max=1.0,
++    )
++    z = torch.nan_to_num(
++        asset.data.root_link_pos_w[:, 2] - env.scene.terrain.env_origins[:, 2], nan=0.0
++    )
++    height = torch.clamp(z / max(stand_height, 1e-6), 0.0, 1.0)
++    feet_xy = asset.data.site_pos_w[:, feet_cfg.site_ids, :2].mean(dim=1)
++    com_dist = torch.norm(asset.data.root_com_pos_w[:, :2] - feet_xy, dim=-1)
++    centered = torch.exp(-((com_dist / 0.035) ** 2))
++    return upright * height * centered
++
++
++def _jump_qualified_takeoff_mask(
++    pre_takeoff: torch.Tensor,
++    support_latched: torch.Tensor,
++    any_ground: torch.Tensor,
++    body_contact: torch.Tensor,
++    com_vz: torch.Tensor,
++    cos_tilt: torch.Tensor,
++    takeoff_vz_min: float,
++    takeoff_tilt_max_deg: float,
++) -> torch.Tensor:
++    """Hard validity gate: launch must follow support established this episode."""
++    return (
++        pre_takeoff
++        & support_latched
++        & ~any_ground
++        & ~body_contact
++        & (com_vz >= takeoff_vz_min)
++        & (cos_tilt >= math.cos(math.radians(takeoff_tilt_max_deg)))
++    )
++
++
++def _jump_visible_takeoff_mask(
++    airborne: torch.Tensor,
++    descending_spawn: torch.Tensor,
++    valid_takeoff_latched: torch.Tensor,
++    clearance_steps: torch.Tensor,
++    airtime: torch.Tensor,
++    clearance_steps_min: int,
++    airtime_min: float,
++) -> torch.Tensor:
++    """Require sustained visible clearance rather than a one-frame contact gap."""
++    return (
++        airborne
++        & ~descending_spawn
++        & ~valid_takeoff_latched
++        & (clearance_steps >= max(1, clearance_steps_min))
++        & (airtime >= airtime_min)
++    )
++
++
++def _jump_effective_sole_clearance(
++    sole_height: torch.Tensor,
++    grounded_sole_height: torch.Tensor,
++    pre_takeoff: torch.Tensor,
++    both_grounded: torch.Tensor,
++) -> tuple[torch.Tensor, torch.Tensor]:
++    """Return gap above the last supported sole envelope and its new reference."""
++    grounded_sole_height = torch.where(
++        pre_takeoff & both_grounded,
++        sole_height,
++        grounded_sole_height,
++    )
++    return (
++        torch.clamp(sole_height - grounded_sole_height, min=0.0),
++        grounded_sole_height,
++    )
++
++
++def _jump_reset_stance_mask(
++    pose_rms: torch.Tensor,
++    head_max_error: torch.Tensor,
++    foot_distance: torch.Tensor,
++    pose_rms_max: float,
++    head_max_error_max: float,
++    foot_distance_min: float,
++) -> torch.Tensor:
++    """Whether a landed pose has genuinely returned to the HOME stance."""
++    return (
++        (pose_rms <= pose_rms_max)
++        & (head_max_error <= head_max_error_max)
++        & (foot_distance >= foot_distance_min)
++    )
++
++
++def _jump_reset_stance_errors(
++    env: ManagerBasedRlEnv,
++    asset: Entity,
++    feet_cfg: SceneEntityCfg,
++) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
++    """Return all-servo RMS, worst head-joint error, and foot-site spacing."""
++    error = _servo_joint_pos(env, asset) - _servo_default_joint_pos(env, asset)
++    pose_rms = torch.sqrt(torch.mean(error.square(), dim=-1) + 1e-8)
++    # Canonical servo layout: neck/head are indices 5:9. The servo-only view
++    # keeps these indices correct on backlash and other passive-joint models.
++    head_max_error = error[:, 5:9].abs().amax(dim=-1)
++    foot_xy = asset.data.site_pos_w[:, feet_cfg.site_ids, :2]
++    foot_distance = torch.norm(foot_xy[:, 0] - foot_xy[:, 1], dim=-1)
++    return pose_rms, head_max_error, foot_distance
++
++
++def _update_jump_state(
++    env: ManagerBasedRlEnv,
++    asset: Entity,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++    feet_sensor_name: str = _JUMP_FEET_SENSOR,
++    body_sensor_name: str = _JUMP_BODY_SENSOR,
++    takeoff_vz_min: float = 0.05,
++    takeoff_tilt_max_deg: float = 30.0,
++    min_grounded_steps: int = 4,
++    takeoff_clearance_min: float = 0.003,
++    takeoff_clearance_steps: int = 2,
++    takeoff_airtime_min: float = 0.08,
++    stable_time: float = 1.0,
++    stable_tilt_max_deg: float = 18.0,
++    stable_height_min: float = 0.085,
++    stable_lin_speed_max: float = 0.20,
++    stable_ang_speed_max: float = 1.5,
++    stable_com_foot_max: float = 0.035,
++    durable_pose_rms_max: float = JUMP_DURABLE_POSE_RMS_MAX_RAD,
++    durable_head_max_error: float = JUMP_DURABLE_HEAD_MAX_ERROR_RAD,
++    durable_foot_distance_min: float = JUMP_DURABLE_FOOT_DISTANCE_MIN_M,
++    stand_height: float = 0.115,
++) -> None:
++    """Advance the jump state machine once per control step.
++
++    Raw contact loss latches only after a two-foot support history and upward
++    whole-body motion.  A *valid* takeoff additionally requires the lowest
++    heel/toe corner across both soles to clear ``takeoff_clearance_min`` for
++    consecutive steps and remain airborne for ``takeoff_airtime_min``. Height
++    is the minimum of CoM rise and bilateral sole clearance. Landing is the
++    first later foot contact; settlement requires a quiet, centered two-foot
++    stance continuously for ``stable_time``.
++    """
++    _jump_state(env, asset)
++    step = int(env.common_step_counter)
++    if step == env._jump_last_update_step:
++        return
++
++    env._jump_takeoff_pulse.zero_()
++    env._jump_touchdown_pulse.zero_()
++    env._jump_stable_pulse.zero_()
++
++    contacts = _jump_contact_mask(env, feet_sensor_name)
++    if contacts.shape[1] >= 2:
++        both_grounded = contacts[:, :2].all(dim=-1)
++    else:
++        both_grounded = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
++    any_ground = contacts.any(dim=-1)
++    body_contact = _jump_contact_mask(env, body_sensor_name).any(dim=-1)
++
++    com_z = torch.nan_to_num(asset.data.root_com_pos_w[:, 2], nan=0.0)
++    com_vz = torch.nan_to_num((com_z - env._jump_prev_com_z) / env.step_dt, nan=0.0)
++    # The entity cache can be one sample behind immediately after a reset;
++    # root-link velocity is the safer fallback for that single step.
++    root_vz = torch.nan_to_num(asset.data.root_link_lin_vel_w[:, 2], nan=0.0)
++    com_vz = torch.where(env.episode_length_buf <= 1, root_vz, com_vz)
++    env._jump_com_vz = com_vz
++    env._jump_prev_com_z = com_z.clone()
++
++    quat = asset.data.root_link_quat_w
++    cos_tilt = torch.nan_to_num(
++        1.0 - 2.0 * (quat[:, 1].square() + quat[:, 2].square()), nan=-1.0
++    )
++    pre_takeoff = ~env._jump_takeoff_latched
++    # Record the uncapped physical launch frontier before the takeoff latch is
++    # flipped.  The v1 reward updated this only after latching, so the takeoff
++    # sample itself was lost and checkpoint evaluation misleadingly reported
++    # 0 m/s even for qualified contact loss.
++    grounded_steps = torch.where(
++        pre_takeoff & both_grounded,
++        env._jump_grounded_steps + 1,
++        torch.where(pre_takeoff, torch.zeros_like(env._jump_grounded_steps), env._jump_grounded_steps),
++    )
++    env._jump_grounded_steps = grounded_steps
++    support_ready = (
++        pre_takeoff
++        & ~env._jump_descending_spawn
++        & (grounded_steps >= min_grounded_steps)
++    )
++    new_support = support_ready & ~env._jump_support_latched
++    env._jump_support_latched |= support_ready
++    env._jump_support_latched_step = torch.where(
++        new_support,
++        env.episode_length_buf,
++        env._jump_support_latched_step,
++    )
++
++    # No launch velocity is credited until support has been established after
++    # this reset. This makes spawn motion and contact-resolution bounce worth 0.
++    launch_candidate = torch.where(
++        pre_takeoff & env._jump_support_latched,
++        torch.clamp(com_vz, min=0.0),
++        torch.zeros_like(com_vz),
++    )
++    env._jump_launch_frontier = torch.maximum(
++        env._jump_launch_frontier, launch_candidate
++    )
++    new_takeoff = _jump_qualified_takeoff_mask(
++        pre_takeoff,
++        env._jump_support_latched,
++        any_ground,
++        body_contact,
++        com_vz,
++        cos_tilt,
++        takeoff_vz_min,
++        takeoff_tilt_max_deg,
++    )
++    env._jump_takeoff_latched |= new_takeoff
++    env._jump_takeoff_height = torch.where(new_takeoff, com_z, env._jump_takeoff_height)
++
++    airborne = env._jump_takeoff_latched & ~env._jump_landed_latched & ~any_ground
++    env._jump_air_steps = torch.where(
++        airborne, env._jump_air_steps + 1, env._jump_air_steps
++    )
++    sole_height = _jump_bilateral_sole_clearance(env, asset)
++    # Mesh contacts have a pose-dependent effective skin: the curved sole may
++    # report support while sparse underside points are several millimetres
++    # above the mathematical plane.  Measure the visible gap from the last
++    # supported envelope instead of rewarding that contact offset.  This also
++    # makes standing on toe/heel worth exactly zero until both feet separate.
++    clearance, env._jump_grounded_sole_height = _jump_effective_sole_clearance(
++        sole_height,
++        env._jump_grounded_sole_height,
++        pre_takeoff,
++        both_grounded,
++    )
++    env._jump_clearance = clearance
++    clearance_ok = airborne & (clearance >= takeoff_clearance_min)
++    env._jump_clearance_steps = torch.where(
++        clearance_ok,
++        env._jump_clearance_steps + 1,
++        torch.where(
++            airborne,
++            torch.zeros_like(env._jump_clearance_steps),
++            env._jump_clearance_steps,
++        ),
++    )
++    airtime = env._jump_air_steps.float() * env.step_dt
++    new_valid_takeoff = _jump_visible_takeoff_mask(
++        airborne=airborne,
++        descending_spawn=env._jump_descending_spawn,
++        valid_takeoff_latched=env._jump_valid_takeoff_latched,
++        clearance_steps=env._jump_clearance_steps,
++        airtime=airtime,
++        clearance_steps_min=takeoff_clearance_steps,
++        airtime_min=takeoff_airtime_min,
++    )
++    env._jump_valid_takeoff_latched |= new_valid_takeoff
++    env._jump_takeoff_pulse |= new_valid_takeoff
++
++    standing_airborne = airborne & ~env._jump_descending_spawn
++    rise = torch.clamp(com_z - env._jump_takeoff_height, min=0.0)
++    env._jump_height_frontier = torch.where(
++        standing_airborne,
++        torch.maximum(env._jump_height_frontier, rise),
++        env._jump_height_frontier,
++    )
++    env._jump_clearance_frontier = torch.where(
++        standing_airborne,
++        torch.maximum(env._jump_clearance_frontier, clearance),
++        env._jump_clearance_frontier,
++    )
++    visible_height = torch.minimum(clearance, rise)
++    env._jump_visible_height_frontier = torch.where(
++        standing_airborne,
++        torch.maximum(env._jump_visible_height_frontier, visible_height),
++        env._jump_visible_height_frontier,
++    )
++    env._jump_airtime_frontier = torch.where(
++        standing_airborne,
++        torch.maximum(env._jump_airtime_frontier, airtime),
++        env._jump_airtime_frontier,
++    )
++
++    new_touchdown = (
++        env._jump_takeoff_latched
++        & ~env._jump_landed_latched
++        & (env._jump_air_steps > 0)
++        & any_ground
++    )
++    env._jump_landed_latched |= new_touchdown
++    env._jump_touchdown_pulse |= new_touchdown
++    env._jump_body_contact_latched |= body_contact & env._jump_valid_takeoff_latched
++    post_touchdown = env._jump_landed_latched
++    env._jump_post_touchdown_steps = torch.where(
++        post_touchdown,
++        env._jump_post_touchdown_steps + 1,
++        torch.zeros_like(env._jump_post_touchdown_steps),
++    )
++
++    feet_xy = asset.data.site_pos_w[:, feet_cfg.site_ids, :2].mean(dim=1)
++    com_dist = torch.norm(asset.data.root_com_pos_w[:, :2] - feet_xy, dim=-1)
++    lin_speed = torch.nan_to_num(asset.data.root_link_lin_vel_w, nan=0.0).norm(dim=-1)
++    touchdown_score = (
++        torch.exp(-((torch.clamp(-com_vz, min=0.0) / 0.35) ** 2))
++        * torch.exp(-((com_dist / 0.030) ** 2))
++        * torch.exp(-((torch.clamp(1.0 - cos_tilt, min=0.0) / 0.12) ** 2))
++        * torch.exp(-((lin_speed / 0.45) ** 2))
++        * (~body_contact).float()
++    )
++    env._jump_touchdown_score = torch.where(
++        new_touchdown, touchdown_score, env._jump_touchdown_score
++    )
++
++    recovery = _jump_recovery_score(env, asset, feet_cfg, stand_height)
++    env._jump_recovery_prev = torch.where(new_touchdown, recovery, env._jump_recovery_prev)
++
++    ang_speed = torch.nan_to_num(asset.data.root_link_ang_vel_b, nan=0.0).norm(dim=-1)
++    stable_now = (
++        env._jump_landed_latched
++        & both_grounded
++        & ~body_contact
++        & ~env._jump_body_contact_latched
++        & (cos_tilt >= math.cos(math.radians(stable_tilt_max_deg)))
++        & (asset.data.root_link_pos_w[:, 2] - env.scene.terrain.env_origins[:, 2] >= stable_height_min)
++        & (lin_speed <= stable_lin_speed_max)
++        & (ang_speed <= stable_ang_speed_max)
++        & (com_dist <= stable_com_foot_max)
++    )
++    env._jump_stable_steps = torch.where(
++        stable_now, env._jump_stable_steps + 1, torch.zeros_like(env._jump_stable_steps)
++    )
++    stable_steps_needed = max(1, int(math.ceil(stable_time / env.step_dt)))
++    new_stable = (
++        ~env._jump_stable_latched & (env._jump_stable_steps >= stable_steps_needed)
++    )
++    env._jump_stable_latched |= new_stable
++    env._jump_stable_pulse |= new_stable
++    pose_rms, head_max_error, foot_distance = _jump_reset_stance_errors(
++        env, asset, feet_cfg
++    )
++    reset_stance_now = _jump_reset_stance_mask(
++        pose_rms,
++        head_max_error,
++        foot_distance,
++        pose_rms_max=durable_pose_rms_max,
++        head_max_error_max=durable_head_max_error,
++        foot_distance_min=durable_foot_distance_min,
++    )
++    env._jump_reset_stance_now = reset_stance_now
++    env._jump_head_max_error = head_max_error
++    env._jump_foot_distance = foot_distance
++    at_horizon = env.episode_length_buf >= env.max_episode_length
++    env._jump_durable_success = (
++        at_horizon
++        & env._jump_valid_takeoff_latched
++        & env._jump_stable_latched
++        & stable_now
++        & reset_stance_now
++        & ~env._jump_body_contact_latched
++    )
++    env._jump_last_update_step = step
++
++
++def reset_jump_state(
++    env: ManagerBasedRlEnv,
++    env_ids: torch.Tensor | None,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    standing_prob: float = 0.55,
++    crouch_prob: float = 0.25,
++    descending_prob: float = 0.20,
++    standing_z_range: tuple[float, float] = (0.112, 0.115),
++    crouch_z_range: tuple[float, float] = (0.068, 0.071),
++    descending_z_range: tuple[float, float] = (0.125, 0.150),
++    descending_vz_range: tuple[float, float] = (-0.35, -0.05),
++    tilt_max_deg: float = 5.0,
++    crouch_overrides: Optional[dict] = None,
++    joint_noise_std: float = 0.03,
++) -> None:
++    """Reset into standing, deep crouch, or descending reverse-curriculum states."""
++    if env_ids is None:
++        env_ids = torch.arange(env.num_envs, device=env.device)
++    if len(env_ids) == 0:
++        return
++    ids = env_ids.to(env.device, dtype=torch.long)
++    n = len(ids)
++    asset: Entity = env.scene[asset_cfg.name]
++    _jump_state(env, asset)
++
++    total = max(standing_prob + crouch_prob + descending_prob, 1e-6)
++    u = torch.rand(n, device=env.device) * total
++    is_crouch = (u >= standing_prob) & (u < standing_prob + crouch_prob)
++    is_desc = u >= standing_prob + crouch_prob
++
++    yaw = torch.rand(n, device=env.device) * 2.0 * math.pi - math.pi
++    pitch = (torch.rand(n, device=env.device) * 2.0 - 1.0) * math.radians(tilt_max_deg)
++    roll = (torch.rand(n, device=env.device) * 2.0 - 1.0) * math.radians(tilt_max_deg)
++    cy, sy = torch.cos(yaw / 2), torch.sin(yaw / 2)
++    cp, sp = torch.cos(pitch / 2), torch.sin(pitch / 2)
++    cr, sr = torch.cos(roll / 2), torch.sin(roll / 2)
++    quat = torch.stack(
++        [
++            cr * cp * cy + sr * sp * sy,
++            sr * cp * cy - cr * sp * sy,
++            cr * sp * cy + sr * cp * sy,
++            cr * cp * sy - sr * sp * cy,
++        ],
++        dim=1,
++    )
++    env.sim.data.qpos[ids, 3:7] = quat
++    env.sim.data.qvel[ids, :6] = 0.0
++
++    def sample_range(bounds: tuple[float, float]) -> torch.Tensor:
++        return torch.rand(n, device=env.device) * (bounds[1] - bounds[0]) + bounds[0]
++
++    z = sample_range(standing_z_range)
++    z = torch.where(is_crouch, sample_range(crouch_z_range), z)
++    z = torch.where(is_desc, sample_range(descending_z_range), z)
++    env.sim.data.qpos[ids, 2] = z
++    if is_desc.any():
++        desc_ids = ids[is_desc]
++        vz = (
++            torch.rand(len(desc_ids), device=env.device)
++            * (descending_vz_range[1] - descending_vz_range[0])
++            + descending_vz_range[0]
++        )
++        env.sim.data.qvel[desc_ids, 2] = vz
++
++    dynamic = is_crouch | is_desc
++    dynamic_ids = ids[dynamic]
++    if len(dynamic_ids) > 0 and crouch_overrides:
++        servo_ids = _servo_joint_ids(env, asset)
++        for servo_idx, target in crouch_overrides.items():
++            env.sim.data.qpos[dynamic_ids, 7 + servo_ids[servo_idx]] = target
++        if joint_noise_std > 0.0:
++            cols = torch.tensor([7 + j for j in servo_ids], device=env.device)
++            env.sim.data.qpos[dynamic_ids[:, None], cols[None, :]] += (
++                torch.randn(len(dynamic_ids), len(cols), device=env.device) * joint_noise_std
++            )
++
++    # Reset all state explicitly; descending spawns begin just after an
++    # artificial takeoff so they train touchdown/recovery without free launch pay.
++    for name in (
++        "_jump_takeoff_latched", "_jump_valid_takeoff_latched",
++        "_jump_support_latched", "_jump_body_contact_latched",
++        "_jump_landed_latched", "_jump_stable_latched",
++        "_jump_takeoff_pulse", "_jump_touchdown_pulse", "_jump_stable_pulse",
++        "_jump_durable_success",
++    ):
++        getattr(env, name)[ids] = False
++    for name in (
++        "_jump_grounded_steps",
++        "_jump_air_steps",
++        "_jump_clearance_steps",
++        "_jump_stable_steps",
++        "_jump_post_touchdown_steps",
++    ):
++        getattr(env, name)[ids] = 0
++    env._jump_support_latched_step[ids] = -1
++    for name in (
++        "_jump_takeoff_height", "_jump_launch_frontier", "_jump_launch_paid",
++        "_jump_height_frontier", "_jump_height_paid", "_jump_airtime_frontier",
++        "_jump_clearance", "_jump_grounded_sole_height", "_jump_clearance_frontier",
++        "_jump_visible_height_frontier", "_jump_visible_height_paid",
++        "_jump_airtime_paid", "_jump_recovery_prev", "_jump_settle_frontier",
++        "_jump_settle_paid", "_jump_com_vz",
++        "_jump_touchdown_score",
++    ):
++        getattr(env, name)[ids] = 0.0
++    env._jump_takeoff_latched[ids[is_desc]] = True
++    env._jump_descending_spawn[ids] = is_desc
++    env._jump_takeoff_height[ids[is_desc]] = z[is_desc] - 0.004
++    # qpos z is not whole-body CoM z. Mark the derivative uninitialized so the
++    # first state update uses measured root velocity rather than a false spike.
++    env._jump_prev_com_z[ids] = torch.nan
++    env._jump_last_update_step = -1
++
++
++def jump_launch_velocity_progress(
++    env: ManagerBasedRlEnv,
++    target_velocity: float = 0.25,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    frontier = torch.clamp(env._jump_launch_frontier, max=target_velocity)
++    delta = torch.clamp(frontier - env._jump_launch_paid, min=0.0)
++    env._jump_launch_paid = torch.maximum(env._jump_launch_paid, frontier)
++    return delta / (env.step_dt * max(target_velocity, 1e-6))
++
++
++def jump_takeoff_bonus(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    return env._jump_takeoff_pulse.float() / env.step_dt
++
++
++def jump_height_progress(
++    env: ManagerBasedRlEnv,
++    target_height: float = 0.005,
++    cap_at_target: bool = True,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    frontier = env._jump_height_frontier
++    if cap_at_target:
++        frontier = torch.clamp(frontier, max=target_height)
++    delta = torch.clamp(frontier - env._jump_height_paid, min=0.0)
++    env._jump_height_paid = torch.maximum(env._jump_height_paid, frontier)
++    return delta / (env.step_dt * max(target_height, 1e-6))
++
++
++def jump_visible_height_progress(
++    env: ManagerBasedRlEnv,
++    target_height: float = 0.015,
++    cap_at_target: bool = False,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    """Pay new max of min(CoM rise, bilateral underside clearance).
++
++    CoM-only height can be farmed by standing on the toes, while clearance-only
++    height can be farmed by tucking the legs. Their minimum advances only when
++    the entire robot follows both soles away from the floor.
++    """
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    frontier = env._jump_visible_height_frontier
++    if cap_at_target:
++        frontier = torch.clamp(frontier, max=target_height)
++    delta = torch.clamp(frontier - env._jump_visible_height_paid, min=0.0)
++    env._jump_visible_height_paid = torch.maximum(
++        env._jump_visible_height_paid, frontier
++    )
++    return delta / (env.step_dt * max(target_height, 1e-6))
++
++
++def jump_airtime_progress(
++    env: ManagerBasedRlEnv,
++    target_airtime: float = 0.06,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    frontier = torch.clamp(env._jump_airtime_frontier, max=target_airtime)
++    delta = torch.clamp(frontier - env._jump_airtime_paid, min=0.0)
++    env._jump_airtime_paid = torch.maximum(env._jump_airtime_paid, frontier)
++    return delta / (env.step_dt * max(target_airtime, 1e-6))
++
++
++def jump_touchdown_quality(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    return env._jump_touchdown_pulse.float() * env._jump_touchdown_score / env.step_dt
++
++
++def jump_recovery_progress(
++    env: ManagerBasedRlEnv,
++    stand_height: float = 0.115,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg, stand_height=stand_height)
++    score = _jump_recovery_score(env, asset, feet_cfg, stand_height)
++    active = env._jump_landed_latched & ~env._jump_stable_latched
++    delta = torch.where(active, score - env._jump_recovery_prev, torch.zeros_like(score))
++    env._jump_recovery_prev = torch.where(active, score, env._jump_recovery_prev)
++    return delta / env.step_dt
++
++
++def _jump_settle_score(
++    env: ManagerBasedRlEnv,
++    asset: Entity,
++    feet_cfg: SceneEntityCfg,
++    stand_height: float,
++) -> torch.Tensor:
++    """Broad, multiplicative landing quality score used as a paid-once frontier."""
++    quat = asset.data.root_link_quat_w
++    cos_tilt = torch.nan_to_num(
++        1.0 - 2.0 * (quat[:, 1].square() + quat[:, 2].square()), nan=-1.0
++    )
++    tilt_error = torch.clamp(1.0 - cos_tilt, min=0.0)
++    z = torch.nan_to_num(
++        asset.data.root_link_pos_w[:, 2] - env.scene.terrain.env_origins[:, 2], nan=0.0
++    )
++    feet_xy = asset.data.site_pos_w[:, feet_cfg.site_ids, :2].mean(dim=1)
++    com_dist = torch.norm(asset.data.root_com_pos_w[:, :2] - feet_xy, dim=-1)
++    lin_speed = torch.nan_to_num(asset.data.root_link_lin_vel_w, nan=0.0).norm(dim=-1)
++    ang_speed = torch.nan_to_num(asset.data.root_link_ang_vel_b, nan=0.0).norm(dim=-1)
++    joint_pos = _servo_joint_pos(env, asset)
++    target = _servo_default_joint_pos(env, asset)
++    pose_rms = torch.sqrt(torch.mean((joint_pos - target).square(), dim=-1) + 1e-8)
++    joint_speed = torch.sqrt(
++        torch.mean(torch.nan_to_num(_servo_joint_vel(env, asset), nan=0.0).square(), dim=-1)
++        + 1e-8
++    )
++    body_clear = ~_jump_contact_mask(env, _JUMP_BODY_SENSOR).any(dim=-1)
++    return (
++        torch.exp(-((tilt_error / 0.22) ** 2))
++        * torch.exp(-(((z - stand_height) / 0.040) ** 2))
++        * torch.exp(-((com_dist / 0.050) ** 2))
++        * torch.exp(-((lin_speed / 0.45) ** 2))
++        * torch.exp(-((ang_speed / 3.0) ** 2))
++        * torch.exp(-((pose_rms / 0.80) ** 2))
++        * torch.exp(-((joint_speed / 4.0) ** 2))
++        * body_clear.float()
++    )
++
++
++def jump_settle_progress(
++    env: ManagerBasedRlEnv,
++    stand_height: float = 0.115,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    """Pay only new best post-touchdown settling quality (unfarmable potential)."""
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg, stand_height=stand_height)
++    score = _jump_settle_score(env, asset, feet_cfg, stand_height)
++    # Keep improving after the broad physical-stability latch. That latch does
++    # not imply a forward head or HOME stance; stopping here let V5 twist its
++    # head and collapse its feet while still collecting the durable jackpot.
++    active = env._jump_landed_latched & ~env._jump_durable_success
++    env._jump_settle_frontier = torch.where(
++        active,
++        torch.maximum(env._jump_settle_frontier, score),
++        env._jump_settle_frontier,
++    )
++    delta = torch.clamp(env._jump_settle_frontier - env._jump_settle_paid, min=0.0)
++    env._jump_settle_paid = torch.maximum(env._jump_settle_paid, env._jump_settle_frontier)
++    return delta / env.step_dt
++
++
++def jump_post_touchdown_pose_cost(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    """HOME-pose error only after touchdown; it cannot block launch exploration."""
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    active = env._jump_landed_latched
++    error = (
++        _servo_joint_pos(env, asset) - _servo_default_joint_pos(env, asset)
++    ).square().mean(dim=-1)
++    return error * active.float()
++
++
++def jump_post_touchdown_head_pose_cost(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    """Explicit forward-head cost for the full post-touchdown interval."""
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    error = (
++        _servo_joint_pos(env, asset)[:, 5:9]
++        - _servo_default_joint_pos(env, asset)[:, 5:9]
++    )
++    return error.square().mean(dim=-1) * env._jump_landed_latched.float()
++
++
++def jump_post_touchdown_stance_width_cost(
++    env: ManagerBasedRlEnv,
++    min_distance: float = 0.070,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    """Normalized foot-spacing shortfall after touchdown (zero near HOME)."""
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    foot_xy = asset.data.site_pos_w[:, feet_cfg.site_ids, :2]
++    distance = torch.norm(foot_xy[:, 0] - foot_xy[:, 1], dim=-1)
++    shortfall = torch.clamp(min_distance - distance, min=0.0) / max(min_distance, 1e-6)
++    return shortfall.square() * env._jump_landed_latched.float()
++
++
++def jump_post_touchdown_motion_cost(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    """Whole-body and joint motion cost for the full post-touchdown interval."""
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    active = env._jump_landed_latched
++    lin = torch.nan_to_num(asset.data.root_link_lin_vel_w, nan=0.0).square().sum(dim=-1)
++    ang = torch.nan_to_num(asset.data.root_link_ang_vel_b, nan=0.0).square().sum(dim=-1)
++    joint = torch.nan_to_num(_servo_joint_vel(env, asset), nan=0.0).square().mean(dim=-1)
++    return (lin + 0.05 * ang + 0.01 * joint) * active.float()
++
++
++def jump_failed_recovery(
++    env: ManagerBasedRlEnv,
++    recovery_timeout: float = 0.80,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    """End a landing that hits the body or misses its recovery window."""
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    limit = max(1, int(math.ceil(recovery_timeout / env.step_dt)))
++    timed_out = (
++        env._jump_landed_latched
++        & ~env._jump_stable_latched
++        & (env._jump_post_touchdown_steps >= limit)
++    )
++    body_failure = (
++        env._jump_valid_takeoff_latched & env._jump_body_contact_latched
++    )
++    return timed_out | body_failure
++
++
++def jump_failed_recovery_cost(
++    env: ManagerBasedRlEnv,
++    recovery_timeout: float = 0.80,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    """One-time episode-mass cost paired with ``jump_failed_recovery``."""
++    return jump_failed_recovery(
++        env,
++        recovery_timeout=recovery_timeout,
++        asset_cfg=asset_cfg,
++        feet_cfg=feet_cfg,
++    ).float() / env.step_dt
++
++
++def jump_stable_landing_bonus(
++    env: ManagerBasedRlEnv,
++    stable_time: float = 1.0,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg, stable_time=stable_time)
++    valid = env._jump_valid_takeoff_latched | env._jump_descending_spawn
++    return (env._jump_stable_pulse & valid).float() / env.step_dt
++
++
++def jump_durable_landing_bonus(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    """Pay only at the episode horizon after the landing survived unchanged."""
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    return env._jump_durable_success.float() / env.step_dt
++
++
++def jump_stable_height_bonus(
++    env: ManagerBasedRlEnv,
++    target_height: float = 0.0065,
++    cap_at_target: bool = True,
++    log_scale: bool = False,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    """Confirm attained jump height only when a valid launch lands stably."""
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    height_fraction = torch.clamp(
++        env._jump_height_frontier / max(target_height, 1e-6), min=0.0
++    )
++    if log_scale:
++        height_fraction = torch.log1p(height_fraction)
++    elif cap_at_target:
++        height_fraction = torch.clamp(height_fraction, max=1.0)
++    valid = env._jump_valid_takeoff_latched & env._jump_stable_pulse
++    return valid.float() * height_fraction / env.step_dt
++
++
++def jump_durable_visible_height_bonus(
++    env: ManagerBasedRlEnv,
++    target_height: float = 0.015,
++    log_scale: bool = True,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    """Confirm visible height only after a full-horizon quiet landing."""
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    fraction = torch.clamp(
++        env._jump_visible_height_frontier / max(target_height, 1e-6), min=0.0
++    )
++    if log_scale:
++        fraction = torch.log1p(fraction)
++    return env._jump_durable_success.float() * fraction / env.step_dt
++
++
++def jump_action_rate_huber(
++    env: ManagerBasedRlEnv,
++    delta: float = 0.5,
++    max_error: float = 2.0,
++) -> torch.Tensor:
++    """Robust mean action-rate cost that cannot create an unbounded tax cliff."""
++    error = torch.clamp(
++        torch.abs(env.action_manager.action - env.action_manager.prev_action),
++        max=max_error,
++    )
++    quadratic = torch.minimum(error, torch.full_like(error, delta))
++    linear = error - quadratic
++    return (0.5 * quadratic.square() + delta * linear).mean(dim=-1)
++
++
++def jump_airborne_tilt_cost(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    quat = asset.data.root_link_quat_w
++    tilt = 2.0 * (quat[:, 1].square() + quat[:, 2].square())
++    airborne = env._jump_takeoff_latched & ~env._jump_landed_latched
++    return torch.nan_to_num(tilt, nan=0.0) * airborne.float()
++
++
++def jump_horizontal_drift_cost(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    airborne = env._jump_takeoff_latched & ~env._jump_landed_latched
++    return torch.nan_to_num(asset.data.root_link_lin_vel_w[:, :2], nan=0.0).square().sum(dim=-1) * airborne.float()
++
++
++def jump_success(
++    env: ManagerBasedRlEnv,
++    stable_time: float = 1.0,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg, stable_time=stable_time)
++    return env._jump_stable_latched & env._jump_valid_takeoff_latched
++
++
++def jump_recovery_success(
++    env: ManagerBasedRlEnv,
++    stable_time: float = 1.0,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    """Terminate a reverse-curriculum landing without calling it a full jump."""
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg, stable_time=stable_time)
++    return env._jump_stable_latched & env._jump_descending_spawn
++
++
++def jump_valid_takeoff_metric(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    return env._jump_valid_takeoff_latched.float()
++
++
++def jump_max_com_rise_mm_metric(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    return env._jump_height_frontier * 1000.0
++
++
++def jump_max_bilateral_clearance_mm_metric(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    return env._jump_clearance_frontier * 1000.0
++
++
++def jump_max_visible_height_mm_metric(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    return env._jump_visible_height_frontier * 1000.0
++
++
++def jump_stable_landing_metric(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    return env._jump_stable_latched.float()
++
++
++def jump_stable_jump_metric(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    return (
++        env._jump_stable_latched & env._jump_valid_takeoff_latched
++    ).float()
++
++
++def jump_durable_jump_metric(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    return env._jump_durable_success.float()
++
++
++def jump_stable_height_mm_metric(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    valid = env._jump_stable_latched & env._jump_valid_takeoff_latched
++    return env._jump_height_frontier * valid.float() * 1000.0
++
++
++def jump_durable_visible_height_mm_metric(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    return (
++        env._jump_visible_height_frontier
++        * env._jump_durable_success.float()
++        * 1000.0
++    )
++
++
++def jump_post_touchdown_survival_s_metric(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    return env._jump_post_touchdown_steps.float() * env.step_dt
++
++
++def jump_body_contact_metric(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    return env._jump_body_contact_latched.float()
++
++
++def jump_reset_stance_metric(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    """Current fraction satisfying the strict forward-head HOME-stance gate."""
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    return env._jump_reset_stance_now.float()
++
++
++def jump_head_max_error_deg_metric(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    return torch.rad2deg(env._jump_head_max_error)
++
++
++def jump_foot_distance_mm_metric(
++    env: ManagerBasedRlEnv,
++    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++    feet_cfg: SceneEntityCfg = _JUMP_FEET_CFG,
++) -> torch.Tensor:
++    asset: Entity = env.scene[asset_cfg.name]
++    _update_jump_state(env, asset, feet_cfg)
++    return env._jump_foot_distance * 1000.0
++
++
++def _jump_v4_spawn_mix(recovery_rate: float) -> tuple[float, float, float]:
++    if recovery_rate < 0.20:
++        return (0.35, 0.35, 0.30)
++    if recovery_rate < 0.50:
++        return (0.50, 0.40, 0.10)
++    return (0.65, 0.35, 0.0)
++
++
++def _jump_v4_action_weight(stable_jump_rate: float) -> float:
++    if stable_jump_rate < 0.02:
++        return 0.0
++    if stable_jump_rate < 0.10:
++        return -0.005
++    if stable_jump_rate < 0.25:
++        return -0.01
++    return -0.02
++
++
++def _jump_v4_dr_range(stable_jump_rate: float, max_range: float) -> float:
++    if stable_jump_rate < 0.05:
++        return min(0.003, max_range)
++    if stable_jump_rate < 0.15:
++        return min(0.005, max_range)
++    if stable_jump_rate < 0.30:
++        return min(0.010, max_range)
++    return max_range
++
++
++def _update_jump_v4_curriculum_stats(
++    env: ManagerBasedRlEnv,
++    env_ids: torch.Tensor,
++    decay: float = 0.98,
++) -> tuple[float, float]:
++    """Update reset-batch EMAs once, before the corresponding state reset."""
++    step = int(env.common_step_counter)
++    if getattr(env, "_jump_v4_curriculum_step", -1) == step:
++        return env._jump_v4_recovery_rate, env._jump_v4_stable_jump_rate
++
++    env._jump_v4_curriculum_step = step
++    if not hasattr(env, "_jump_v4_recovery_rate"):
++        env._jump_v4_recovery_rate = 0.0
++        env._jump_v4_stable_jump_rate = 0.0
++    if not hasattr(env, "_jump_stable_latched") or env_ids is None or len(env_ids) == 0:
++        return env._jump_v4_recovery_rate, env._jump_v4_stable_jump_rate
++
++    ids = env_ids.to(env.device, dtype=torch.long)
++    completed = env.episode_length_buf[ids] > 0
++    desc = env._jump_descending_spawn[ids] & completed
++    jump = ~env._jump_descending_spawn[ids] & completed
++    if desc.any():
++        batch = env._jump_stable_latched[ids][desc].float().mean().item()
++        env._jump_v4_recovery_rate = decay * env._jump_v4_recovery_rate + (1.0 - decay) * batch
++    if jump.any():
++        success = (
++            env._jump_stable_latched[ids]
++            & env._jump_valid_takeoff_latched[ids]
++        )
++        batch = success[jump].float().mean().item()
++        env._jump_v4_stable_jump_rate = (
++            decay * env._jump_v4_stable_jump_rate + (1.0 - decay) * batch
++        )
++    return env._jump_v4_recovery_rate, env._jump_v4_stable_jump_rate
++
++
++def jump_spawn_performance_curriculum(
++    env: ManagerBasedRlEnv,
++    env_ids: torch.Tensor,
++    event_name: str,
++) -> torch.Tensor:
++    recovery_rate, _ = _update_jump_v4_curriculum_stats(env, env_ids)
++    standing, crouch, descending = _jump_v4_spawn_mix(recovery_rate)
++    term_cfg = env.event_manager.get_term_cfg(event_name)
++    term_cfg.params.update(
++        standing_prob=standing,
++        crouch_prob=crouch,
++        descending_prob=descending,
++    )
++    return torch.tensor(descending, device=env.device)
++
++
++def jump_action_performance_curriculum(
++    env: ManagerBasedRlEnv,
++    env_ids: torch.Tensor,
++    reward_name: str,
++) -> torch.Tensor:
++    _, stable_jump_rate = _update_jump_v4_curriculum_stats(env, env_ids)
++    weight = _jump_v4_action_weight(stable_jump_rate)
++    term_cfg = env.reward_manager.get_term_cfg(reward_name)
++    term_cfg.weight = weight
++    return torch.tensor(weight, device=env.device)
++
++
++def jump_dr_performance_curriculum(
++    env: ManagerBasedRlEnv,
++    env_ids: torch.Tensor,
++    event_name: str,
++    max_range: float,
++) -> torch.Tensor:
++    _, stable_jump_rate = _update_jump_v4_curriculum_stats(env, env_ids)
++    value = _jump_v4_dr_range(stable_jump_rate, max_range)
++    term_cfg = env.event_manager.get_term_cfg(event_name)
++    term_cfg.params["ranges"] = (-value, value)
++    return torch.tensor(value, device=env.device)
++
++
++def reward_param_curriculum(
++    env: ManagerBasedRlEnv,
++    env_ids: torch.Tensor,
++    reward_name: str,
++    param_stages: list[dict],
++) -> torch.Tensor:
++    """Step-stage arbitrary params on a live reward term configuration."""
++    del env_ids
++    term_cfg = env.reward_manager.get_term_cfg(reward_name)
++    current = param_stages[0]["params"]
++    for stage in param_stages:
++        if env.common_step_counter >= stage["step"]:
++            current = stage["params"]
++    term_cfg.params.update(current)
++    first = next(iter(current.values()))
++    return torch.tensor(float(first) if isinstance(first, (int, float)) else 0.0)
+diff --git a/uv.lock b/uv.lock
+index 2d20aec..72b9091 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -829,6 +829,7 @@ dependencies = [
+     { name = "scipy" },
+     { name = "torch", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'aarch64' or sys_platform != 'linux'" },
+     { name = "torch", version = "2.9.1+cu129", source = { registry = "https://download.pytorch.org/whl/cu129" }, marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
++    { name = "wandb" },
+     { name = "warp-lang" },
+ ]
+ 
+@@ -843,6 +844,7 @@ requires-dist = [
+     { name = "scipy", specifier = ">=1.16" },
+     { name = "torch", marker = "platform_machine != 'aarch64' or sys_platform != 'linux'", specifier = "==2.9.1" },
+     { name = "torch", marker = "platform_machine == 'aarch64' and sys_platform == 'linux'", specifier = "==2.9.1", index = "https://download.pytorch.org/whl/cu129" },
++    { name = "wandb", specifier = ">=0.25,<0.29" },
+     { name = "warp-lang", specifier = "==1.12.0" },
+ ]
+ 
+@@ -1343,6 +1345,18 @@ wheels = [
+     { url = "https://files.pythonhosted.org/packages/f6/ec/1656ea93be1e50baf429c20603dce249fa3571f3a180407cee79b1afa013/onnxscript-0.5.7-py3-none-any.whl", hash = "sha256:f94a66059c56d13b44908e9b7fd9dae4b4faa6681c784f3fd4c29cfa863e454e", size = 693353, upload-time = "2025-12-16T20:47:17.897Z" },
+ ]
+ 
++[[package]]
++name = "opentelemetry-api"
++version = "1.44.0"
++source = { registry = "https://pypi.org/simple" }
++dependencies = [
++    { name = "typing-extensions" },
++]
++sdist = { url = "https://files.pythonhosted.org/packages/ee/8b/aa9e2d8b8dfa7c946f7dec5d1f8f6ba8eca062f43509a06bdb5ce93d26c0/opentelemetry_api-1.44.0.tar.gz", hash = "sha256:67647e5e9566edcf421166fdf022b3537f818635daa852b289e34604dc6fb33a", size = 72406, upload-time = "2026-07-16T15:25:32.678Z" }
++wheels = [
++    { url = "https://files.pythonhosted.org/packages/ca/6f/a04e900f465ff3221ccc395522503e2d10e79fa21f2723c8e177aae1e0d1/opentelemetry_api-1.44.0-py3-none-any.whl", hash = "sha256:94b98c893a91b88657eaac1e3ba89618cdb85be6918196705354f34728b2cdef", size = 60018, upload-time = "2026-07-16T15:25:11.657Z" },
++]
++
+ [[package]]
+ name = "orjson"
+ version = "3.11.5"
+@@ -2114,11 +2128,11 @@ wheels = [
+ 
+ [[package]]
+ name = "wandb"
+-version = "0.24.0"
++version = "0.28.2"
+ source = { registry = "https://pypi.org/simple" }
+ dependencies = [
+     { name = "click" },
+-    { name = "gitpython" },
++    { name = "opentelemetry-api" },
+     { name = "packaging" },
+     { name = "platformdirs" },
+     { name = "protobuf" },
+@@ -2128,17 +2142,16 @@ dependencies = [
+     { name = "sentry-sdk" },
+     { name = "typing-extensions" },
+ ]
+-sdist = { url = "https://files.pythonhosted.org/packages/27/7e/aad6e943012ea4d88f3a037f1a5a7c6898263c60fbef8c9cdb95a8ff9fd9/wandb-0.24.0.tar.gz", hash = "sha256:4715a243b3d460b6434b9562e935dfd9dfdf5d6e428cfb4c3e7ce4fd44460ab3", size = 44197947, upload-time = "2026-01-13T22:59:59.767Z" }
+-wheels = [
+-    { url = "https://files.pythonhosted.org/packages/5f/8a/efec186dcc5dcf3c806040e3f33e58997878b2d30b87aa02b26f046858b6/wandb-0.24.0-py3-none-macosx_12_0_arm64.whl", hash = "sha256:aa9777398ff4b0f04c41359f7d1b95b5d656cb12c37c63903666799212e50299", size = 21464901, upload-time = "2026-01-13T22:59:31.86Z" },
+-    { url = "https://files.pythonhosted.org/packages/ed/84/fadf0d5f1d86c3ba662d2b33a15d2b1f08ff1e4e196c77e455f028b0fda2/wandb-0.24.0-py3-none-macosx_12_0_x86_64.whl", hash = "sha256:0423fbd58c3926949724feae8aab89d20c68846f9f4f596b80f9ffe1fc298130", size = 22697817, upload-time = "2026-01-13T22:59:35.267Z" },
+-    { url = "https://files.pythonhosted.org/packages/6e/5f/e3124e68d02b30c62856175ce714e07904730be06eecb00f66bb1a59aacf/wandb-0.24.0-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:2b25fc0c123daac97ed32912ac55642c65013cc6e3a898e88ca2d917fc8eadc0", size = 21118798, upload-time = "2026-01-13T22:59:38.453Z" },
+-    { url = "https://files.pythonhosted.org/packages/22/a1/8d68a914c030e897c306c876d47c73aa5d9ca72be608971290d3a5749570/wandb-0.24.0-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:9485344b4667944b5b77294185bae8469cfa4074869bec0e74f54f8492234cc2", size = 22849954, upload-time = "2026-01-13T22:59:41.265Z" },
+-    { url = "https://files.pythonhosted.org/packages/e9/f8/3e68841a4282a4fb6a8935534e6064acc6c9708e8fb76953ec73bbc72a5e/wandb-0.24.0-py3-none-musllinux_1_2_aarch64.whl", hash = "sha256:51b2b9a9d7d6b35640f12a46a48814fd4516807ad44f586b819ed6560f8de1fd", size = 21160339, upload-time = "2026-01-13T22:59:43.967Z" },
+-    { url = "https://files.pythonhosted.org/packages/16/e5/d851868ce5b4b437a7cc90405979cd83809790e4e2a2f1e454f63f116e52/wandb-0.24.0-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:11f7e7841f31eff82c82a677988889ad3aa684c6de61ff82145333b5214ec860", size = 22936978, upload-time = "2026-01-13T22:59:46.911Z" },
+-    { url = "https://files.pythonhosted.org/packages/d2/34/43b7f18870051047ce6fe18e7eb24ba7ebdc71663a8f1c58e31e855eb8ac/wandb-0.24.0-py3-none-win32.whl", hash = "sha256:42af348998b00d4309ae790c5374040ac6cc353ab21567f4e29c98c9376dee8e", size = 22118243, upload-time = "2026-01-13T22:59:49.555Z" },
+-    { url = "https://files.pythonhosted.org/packages/a1/92/909c81173cf1399111f57f9ca5399a8f165607b024e406e080178c878f70/wandb-0.24.0-py3-none-win_amd64.whl", hash = "sha256:32604eddcd362e1ed4a2e2ce5f3a239369c4a193af223f3e66603481ac91f336", size = 22118246, upload-time = "2026-01-13T22:59:52.126Z" },
+-    { url = "https://files.pythonhosted.org/packages/87/85/a845aefd9c2285f98261fa6ffa0a14466366c1ac106d35bc84b654c0ad7f/wandb-0.24.0-py3-none-win_arm64.whl", hash = "sha256:e0f2367552abfca21b0f3a03405fbf48f1e14de9846e70f73c6af5da57afd8ef", size = 20077678, upload-time = "2026-01-13T22:59:56.112Z" },
++sdist = { url = "https://files.pythonhosted.org/packages/fd/41/c2eb0e25e0504287442f0829a5dc380669b683f78068c79220acc626383f/wandb-0.28.2.tar.gz", hash = "sha256:9dba560ce076f96a0033a0d2898d97cba651fc95fec7274fd09920bae8aec5cf", size = 41011367, upload-time = "2026-08-12T01:34:20.484Z" }
++wheels = [
++    { url = "https://files.pythonhosted.org/packages/47/d9/8fb47c6c0b6e70378fc2b5da6dfba5d1d3178366a06bd7e672c3249964c3/wandb-0.28.2-py3-none-macosx_12_0_arm64.whl", hash = "sha256:f9aa4037d18168dd4e804ff8213100c4a3ebe3e52b5f29463bbc7fadcaadff75", size = 26716653, upload-time = "2026-08-12T01:33:58.338Z" },
++    { url = "https://files.pythonhosted.org/packages/2f/a7/6690491966e46409bfe770b73bdb1952fb6a59988b9e8c72c748f4ca080c/wandb-0.28.2-py3-none-macosx_12_0_x86_64.whl", hash = "sha256:b3830781cb93a29ad91a736d3bc5763312e782467432ee432fd731f408708991", size = 28649923, upload-time = "2026-08-12T01:34:01.22Z" },
++    { url = "https://files.pythonhosted.org/packages/03/46/e69c813d88f37f77da92cfd9c63e1e9b5ce70834b0f420f876c66590353f/wandb-0.28.2-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:0c475c6b93d57e0455f3d1323e323927696502e6af7ee15e389a552114edacff", size = 27385453, upload-time = "2026-08-12T01:34:03.876Z" },
++    { url = "https://files.pythonhosted.org/packages/3c/7f/f3e23a2ff01848d7a5adab9f307992b92ef99c5e6bff2bd89cd46d651e3a/wandb-0.28.2-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:1db698d107871c66b2dcbb0cf4dc2af1ddb159ba94e957e890158ec60ab2de54", size = 29622780, upload-time = "2026-08-12T01:34:06.621Z" },
++    { url = "https://files.pythonhosted.org/packages/9e/1d/e087f71898ebfa86f68264e91f44ee5b8106823f09e2644043e3f1d5fe49/wandb-0.28.2-py3-none-musllinux_1_2_aarch64.whl", hash = "sha256:86e017d3f38bb99374de4d991a2ea0e6e71722164918585b3dea66190b28d0eb", size = 27425107, upload-time = "2026-08-12T01:34:09.359Z" },
++    { url = "https://files.pythonhosted.org/packages/f2/58/3f7a624c880d7b9e60b4a000b0bb751c20244d0bcc002d3ff683cf828651/wandb-0.28.2-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:81468f5c00b5453a2a1d3c7ca7a18056c52a85fa4df60299052cb96829d81b11", size = 29851453, upload-time = "2026-08-12T01:34:12.133Z" },
++    { url = "https://files.pythonhosted.org/packages/f6/a3/b680c7518b0dc7eb236e7ef3bcc0994d0fabc67bbef1b73878dee196fc1e/wandb-0.28.2-py3-none-win_amd64.whl", hash = "sha256:ae5c2591214565be9f085c3b7838ee4a89344ae0c8dc06030425def08b6191aa", size = 26800272, upload-time = "2026-08-12T01:34:14.64Z" },
++    { url = "https://files.pythonhosted.org/packages/ae/5a/a323653c6989c565b2138ddd7421ef30b47ea2849a62d0181534772b56da/wandb-0.28.2-py3-none-win_arm64.whl", hash = "sha256:23a4b9ac74f211836b71b27ba33bb217977a6b4cdc927e33eb5b12de143dd727", size = 24484327, upload-time = "2026-08-12T01:34:17.46Z" },
+ ]
+ 
+ [[package]]

@@ -1,0 +1,33 @@
+{
+  "version": "1.0.0",
+  "control_frequency_hz": 50,
+  "jump_policy": {
+    "path": "../policy/max_height_jump.onnx",
+    "sha256": "046debd3eebd61a8c027d5595c1bca4fe32056fbb0ae63ac0b2f4e3798e1270f"
+  },
+  "standing_policy": {
+    "path": "standing_policy.onnx",
+    "sha256": "b67241196647297156512ae87e90c222cc71c9a799e0124abb83bdf48b68247f"
+  },
+  "command": {
+    "launch_twist": [1.0, 0.0, 0.0],
+    "settle_twist": [0.0, 0.0, 0.0],
+    "head_pose": [0.0, 0.0, 0.0, 0.0],
+    "body_pose": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    "launch_window_backstop_s": 0.75,
+    "notes": "Training clears the launch flag on touchdown. Deployment needs equivalent state or impact detection; a fixed timer is only an unvalidated fallback."
+  },
+  "handoff": {
+    "clock_origin": "jump trigger",
+    "start_s": 0.28,
+    "duration_s": 0.16,
+    "curve": "smoothstep",
+    "formula": "u=clip((t-start_s)/duration_s,0,1); alpha=u*u*(3-2*u); action=(1-alpha)*jump_action+alpha*standing_action",
+    "after_blend": "retain standing policy"
+  },
+  "evidence": {
+    "source": "../evaluation/apex_handoff_metrics.json",
+    "seeded_rollouts": 1,
+    "hardware_verified": false
+  }
+}
