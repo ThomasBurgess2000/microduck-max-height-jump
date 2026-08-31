@@ -5,7 +5,7 @@ evidence for a one-shot Microduck jump trained with PPO in
 [`pollen-robotics/microduck_rl`](https://github.com/pollen-robotics/microduck_rl).
 
 The policy is **simulation-only and hardware-unverified**. The name describes
-its height-optimizing training objective; it is not a claim that 21.96 mm is a
+its height-optimizing training objective; it is not a claim that 31.67 mm is a
 proven physical maximum.
 
 [Watch the four-times slow-motion jump and standing handoff](media/preview-4x.mp4).
@@ -54,34 +54,39 @@ flag at 1 indefinitely is outside the trained contract.
 
 ## Important handoff limitation
 
-`max_height_jump.onnx` contains only the jump controller. It achieved a
-qualified takeoff and stable initial landing in the deterministic evaluation,
-but it **did not** meet the durable final-standing criterion by itself.
+`max_height_jump.onnx` contains only the jump controller. In direct ONNX
+Runtime evaluation it achieved a qualified takeoff and crossed the stable
+landing threshold with 40 ms of recovery margin, but it **did not** meet the
+durable final-standing criterion: its head remained rotated and its feet
+finished only 37.26 mm apart.
 
 The quiet reset shown in the preview runs both ONNX models and blends their
-14 actions with smoothstep interpolation. The blend starts 0.28 s after the
-jump trigger, lasts 0.16 s, and then retains the standing controller. The
+14 actions with smoothstep interpolation. The blend starts 0.22 s after the
+jump trigger, lasts 0.14 s, and then retains the standing controller. The
 exact formula and hashes are in [`handoff/manifest.json`](handoff/manifest.json).
 This orchestration is not embedded in the primary ONNX and is not supplied by
 a plain `robotd.toml` policy path.
 
 ## Deterministic simulation evidence
 
-These are single seeded CPU MuJoCo rollouts, not a randomized robustness
-battery and not physical-robot evidence.
+These are direct ONNX Runtime rollouts in one seeded CPU MuJoCo environment,
+not a randomized robustness battery and not physical-robot evidence.
 
-| Metric | Jump ONNX alone | Apex-to-standing handoff |
+| Metric | Jump ONNX alone | Jump-to-standing handoff |
 | --- | ---: | ---: |
-| Launch velocity | 0.629 m/s | 0.629 m/s |
-| Visible whole-body rise | 21.96 mm | 21.96 mm |
-| Bilateral sole clearance | 33.09 mm | 33.09 mm |
-| Airtime | 120 ms | 120 ms |
+| Launch velocity | 0.628 m/s | 0.628 m/s |
+| Visible whole-body rise | 31.67 mm | 31.67 mm |
+| Bilateral sole clearance | 31.67 mm | 31.67 mm |
+| Airtime | 140 ms | 140 ms |
 | Stable landing | yes | yes |
 | Durable landing | **no** | **yes** |
-| Settle score | 0.779 | 0.934 |
+| Failed recovery | no | no |
+| Stable-recovery margin | 40 ms | 100 ms |
+| Settle score | 0.778 | 0.860 |
 | Non-foot body contact | no | no |
-| Final tilt | 2.76 degrees | 2.74 degrees |
-| Final foot spacing | 36.55 mm | 83.50 mm |
+| Final tilt | 3.74 degrees | 2.87 degrees |
+| Maximum final head-joint error | 44.02 degrees | 7.27 degrees |
+| Final foot spacing | 37.26 mm | 81.95 mm |
 
 The simulation used the standard all-collisions robot model, BAM M6 voltage
 actuation, voltage sag, actuator delay, and domain randomization. It did not

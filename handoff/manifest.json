@@ -19,14 +19,14 @@
   },
   "handoff": {
     "clock_origin": "jump trigger",
-    "start_s": 0.28,
-    "duration_s": 0.16,
+    "start_s": 0.22,
+    "duration_s": 0.14,
     "curve": "smoothstep",
     "formula": "u=clip((t-start_s)/duration_s,0,1); alpha=u*u*(3-2*u); action=(1-alpha)*jump_action+alpha*standing_action",
     "after_blend": "retain standing policy"
   },
   "evidence": {
-    "source": "../evaluation/apex_handoff_metrics.json",
+    "source": "../evaluation/standing_handoff_metrics.json",
     "seeded_rollouts": 1,
     "hardware_verified": false
   }

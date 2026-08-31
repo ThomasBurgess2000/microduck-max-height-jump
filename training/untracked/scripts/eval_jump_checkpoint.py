@@ -91,7 +91,12 @@ def main() -> None:
         help="Optional 4x slow-motion lower-body close-up MP4",
     )
     parser.add_argument("--slow-factor", type=float, default=4.0)
-    parser.add_argument("--steps", type=int, default=174, help="174 steps = 3.48 s at 50 Hz")
+    parser.add_argument(
+        "--steps",
+        type=int,
+        default=175,
+        help="175 steps = the full 3.5 s episode horizon at 50 Hz",
+    )
     parser.add_argument(
         "--preroll-s",
         type=float,
@@ -260,6 +265,7 @@ def main() -> None:
         "handoff_blend_s": args.handoff_blend_s if standing_session is not None else None,
         "continued_after_failed_recovery": args.continue_after_failed_recovery,
         "recovery_timeout_s": recovery_timeout_s,
+        "episode_horizon_steps": env.unwrapped.max_episode_length,
         "stable_recovery_margin_ms": None,
         "initial_two_foot_contact": initial_two_foot_contact,
         "first_two_foot_contact_step": None,
